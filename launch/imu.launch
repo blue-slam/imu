@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+
+<launch>
+  <node pkg="imu" type="imu_controller" name="imu_controller" respawn="true" output="screen">
+    <param name="imu_calib_path" value="$(find imu)/params/imu_calib.yaml" />
+  </node>
+</launch>
