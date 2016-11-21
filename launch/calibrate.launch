@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+
+<launch>
+  <node pkg="imu" type="imu_calibrate" name="imu_calibrate" respawn="false" output="screen">
+    <param name="imu_calib_path" value="$(find imu)/params/imu_cal.yaml" />
+  </node>
+</launch>

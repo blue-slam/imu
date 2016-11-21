@@ -217,6 +217,7 @@ class BNO055(object):
         # If reset pin is provided save it and a reference to provided GPIO
         # bus (or the default system GPIO bus if none is provided).
         self._rst = rst
+        self._mode = OPERATION_MODE_CONFIG
         if self._rst is not None:
             if gpio is None:
                 import Adafruit_GPIO as GPIO

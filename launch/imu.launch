@@ -1,7 +1,8 @@
 <?xml version="1.0"?>
 
 <launch>
-  <node pkg="imu" type="imu_controller" name="imu_controller" respawn="true" output="screen">
-    <param name="imu_calib_path" value="$(find imu)/params/imu_calib.yaml" />
-  </node>
+    <arg name="machine"/>
+    <node pkg="imu" type="imu_controller" name="imu_controller"  machine="$(arg machine)" respawn="true" output="screen">
+        <rosparam command="load" file="$(find imu)/params/imu_cal.yaml"/>
+    </node>
 </launch>

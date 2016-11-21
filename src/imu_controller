@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import sys
+import yaml
 import numpy as np
 
 import rospy
@@ -8,66 +8,76 @@ import rospy
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Vector3, Quaternion
 from Adafruit_BNO055 import BNO055
+from imu.msg import CalStatus
 
 
 class ImuReader:
 
-    def __init__(self):
-
-        self.rate = 25
-        # calib_path = rospy.get_param("~calib_path")
+    def __init__(self, cal_data):
 
         # Start is up
         self.bno = BNO055.BNO055(serial_port='/dev/ttyAMA0', rst=4)
-        if not self.bno.begin():
+        # self.bno.set_external_crystal(True)
+        if not self.bno.begin(mode=BNO055.OPERATION_MODE_IMUPLUS):
             raise RuntimeError('Failed to initialize BNO055')
-        self.bno.set_external_crystal(True)
 
         # Run self test
         status, self_test, error = self.bno.get_system_status()
-        print('System status: {0}'.format(status))
-        print('Self test result (0x0F is normal): 0x{0:02X}'.format(self_test))
+        rospy.loginfo('System status: {0}'.format(status))
+        rospy.loginfo('Self test result (0x0F is normal): 0x{0:02X}'.format(self_test))
         if status == 0x01:
-            print('System error: {0}'.format(error))
+            raise RuntimeError('System error: {0}'.format(error))
 
         # Display version information
         sw, bl, accel, mag, gyro = self.bno.get_revision()
-        print('Software version:   {0}'.format(sw))
-        print('Bootloader version: {0}'.format(bl))
-        print('Accelerometer ID:   0x{0:02X}'.format(accel))
-        print('Magnetometer ID:    0x{0:02X}'.format(mag))
-        print('Gyroscope ID:       0x{0:02X}\n'.format(gyro))
+        rospy.loginfo('Software version:   {0}'.format(sw))
+        rospy.loginfo('Bootloader version: {0}'.format(bl))
+        rospy.loginfo('Accelerometer ID:   0x{0:02X}'.format(accel))
+        rospy.loginfo('Magnetometer ID:    0x{0:02X}'.format(mag))
+        rospy.loginfo('Gyroscope ID:       0x{0:02X}'.format(gyro))
 
-        self.bno.set_external_crystal(True)
+        # Set calibration data
+        self.bno.set_calibration(cal_data)
+
         # self.bno.set_axis_remap(BNO055.AXIS_REMAP_Y, BNO055.AXIS_REMAP_X, BNO055.AXIS_REMAP_Z)
-        self.bno.set_mode(BNO055.OPERATION_MODE_IMUPLUS)
 
     def read_from_imu(self):
         while True:
             try:
-                imu_msg = Imu()
-                imu_msg.header.stamp = rospy.Time.now()
-                imu_msg.header.frame_id = ''
+                cal_status = CalStatus()
+                cal_status.header.stamp = rospy.Time.now()
+                cal_status.header.frame_id = "imu_link"
 
+                imu_msg = Imu()
+                imu_msg.header.stamp = cal_status.header.stamp
+                imu_msg.header.frame_id = 'imu_link'
+
+                cal_status.sys, cal_status.gyro, cal_status.accel, cal_status.mag = self.bno.get_calibration_status()
                 orientation = self.bno.read_quaternion()
-                linear_acceleration = self.bno.read_linear_acceleration()
+                # linear_acceleration = self.bno.read_linear_acceleration()
+                acceleration = self.bno.read_accelerometer()
                 angular_velocity = self.bno.read_gyroscope()
 
-                imu_msg.orientation_covariance[0] = -1
-                imu_msg.linear_acceleration_covariance[0] = -1
-                imu_msg.angular_velocity_covariance[0] = -1
+                # imu_msg.orientation_covariance[0] = -1
+                # imu_msg.linear_acceleration_covariance[0] = -1
+                # imu_msg.angular_velocity_covariance[0] = -1
 
-                imu_msg.orientation = Quaternion(orientation[1],
+                imu_msg.orientation_covariance = [0.000001, 0.0, 0.0, 0.0, 0.000001, 0.0, 0.0, 0.0, 0.000001]
+                imu_msg.linear_acceleration_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
+                imu_msg.angular_velocity_covariance = [0.000027, 0.0, 0.0, 0.0, 0.000027, 0.0, 0.0, 0.0, 0.000027]
+
+                imu_msg.orientation = Quaternion(orientation[0],
+                                                 orientation[1],
                                                  orientation[2],
-                                                 orientation[3],
-                                                 orientation[0])
-                imu_msg.linear_acceleration = Vector3(linear_acceleration[0],
-                                                      linear_acceleration[1],
-                                                      linear_acceleration[2])
+                                                 orientation[3])
+                imu_msg.linear_acceleration = Vector3(acceleration[0],
+                                                      acceleration[1],
+                                                      acceleration[2])
                 imu_msg.angular_velocity = Vector3(np.deg2rad(angular_velocity[0]),
                                                    np.deg2rad(angular_velocity[1]),
                                                    np.deg2rad(angular_velocity[2]))
-                return imu_msg
+
+                return cal_status, imu_msg
 
             except RuntimeError:
                 pass
@@ -77,14 +87,16 @@ if __name__ == "__main__":
     try:
         rospy.init_node('imu_controller')
 
-        imu_reader = ImuReader()
+        imu_reader = ImuReader(rospy.get_param('~cal_data'))
 
         imu_pub = rospy.Publisher('imu', Imu, queue_size=10)
+        cal_status_pub = rospy.Publisher('imu/cal_status', CalStatus, queue_size=10)
 
-        rate = rospy.Rate(imu_reader.rate)
+        rate = rospy.Rate(rospy.get_param('~sample_rate'))
         while not rospy.is_shutdown():
-            imu_msg = imu_reader.read_from_imu()
+            cal_status_msg, imu_msg = imu_reader.read_from_imu()
             imu_pub.publish(imu_msg)
+            cal_status_pub.publish(cal_status_msg)
             rate.sleep()
 
     except rospy.ROSInterruptException:
